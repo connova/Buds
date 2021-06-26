@@ -539,14 +539,14 @@ abstract contract FourTwenty is Context, IERC20, Ownable {
     uint tokenOwnersClaimable;
 
     uint balanceFromLiquidityFee;
-    uint minAmountForPancakeSwap = totalSupply/1000; //this 0.1% is random pick maybe it should be changed
+    uint minAmountForPancakeSwap = totalSupply/1000; //0.1% is [random] pick maybe it should change
 
     mapping (address => uint) _balances;
     mapping (address => bool) isTeam420; 
     address[] team420;
     mapping (address => bool) private _isExcludedFromFee;
     mapping (address => mapping (address => uint256)) private _allowances;
-    
+  
     address goodBudsWallet;
     address smokeOutWallet;
 
@@ -559,18 +559,27 @@ abstract contract FourTwenty is Context, IERC20, Ownable {
 
     event AddedTeamMember(address teamMember, uint time);
     event RemovedTeamMember(address teamMember, uint time);
-
+    
     event SwapAndLiquify(uint256 tokensSwapped, uint256 ethReceived, uint256 tokensIntoLiqudity);
     //NEED TO IMPLEMENT Transfer Event
-    //NEED TO IMPLEMENT Apporval Event 
+    //NEED TO IMPLEMENT Approval Event 
 
     IUniswapV2Router02 public immutable uniswapV2Router;
     address public immutable uniswapV2Pair;
  
-    constructor(){
+    constructor(address goodBudWalletAddress, address smokeOutWalletAddress, address[] memory teamMembers){
+        goodBudsWallet = goodBudWalletAddress;
+        smokeOutWallet = smokeOutWalletAddress;
+
         _balances[msg.sender] = totalSupply;
-        isTeam420[msg.sender] = true;
+        isTeam420[msg.sender] = true; 
         team420.push(msg.sender);
+
+        for (uint i = 0; i < teamMembers.length; i++) {
+            isTeam420[teamMembers[i]] = true;
+            team420.push(teamMembers[i]);
+        }
+
         _isExcludedFromFee[address(this)] = true; //AFFECT HASN'T BEEN IMPLEMENTED 
 
         IUniswapV2Router02 _uniswapV2Router = IUniswapV2Router02(0x05fF2B0DB69458A0750badebc4f9e13aDd608C7F);
@@ -594,49 +603,229 @@ abstract contract FourTwenty is Context, IERC20, Ownable {
         return _decimals;
     }
 
-    //420 Team Member Logic
-    //function currentTeamMembers() public view returns (address[] calldata) {
-    //    uint[] calldata teamMembers;
-//
-    //    for(uint i = 0; i < team420.length; i++) {
-    //        if(isTeam420[team420[i]]) {
-    //            teamMembers.push(team420[i]);
-    //        }
-    //    }
-    //    return teamMembers;
-    //}
+    //Wallets Logic Begins
 
-    function teamMembersIncludingExTeamMembers() public view returns (address[] memory) {
+    function viewGoodBudsWallet() public view returns(address) {
+        return goodBudsWallet;
+    }
+
+    function viewSmokeOutWallet() public view returns(address) {
+        return smokeOutWallet;
+    }
+
+    //Wallets Logic Ends
+
+    //420 Team Member Logic Begins
+
+    function isCurrentTeamMember(address person) public view returns(bool) {
+        if(isTeam420[person] == true){ return true;} else return false;
+    }
+
+    function teamMembersAndExTeamMembers() public view returns (address[] memory) {
         return team420;
     }
 
     function addTeamMember(address teamMember) public onlyOwner {
         isTeam420[teamMember] = true;
         team420.push(teamMember);
-
         emit AddedTeamMember(teamMember, block.timestamp);
     }
 
     function removeTeamMember(address teamMember) public onlyOwner {
         isTeam420[teamMember] = false;
-
         emit RemovedTeamMember(teamMember, block.timestamp);
     }
+
     //420 Team Member Logic Ends
+
+    //Below function is here to receive ETHER into the contract from PancakeSwap
+    receive() external payable {}//consider adding fallback() as well
 
     function balanceOf(address account) public view override returns (uint256) {
         if (_isExcludedFromFee[account]) return address(this).balance;
         return _balances[account];
     }
 
-    //Below function is here to receive ETHER into the contract from PancakeSwap
-    receive() external payable {}
-
-    //transfer to all owners tokenOwnersClaimable amount///////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////
+    //transfer to all HODLRs tokenOwnersClaimable amount has yet to be set///////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////
 
     function transfer(address recipient, uint256 amount) public virtual override returns (bool) {
         _transfer(_msgSender(), recipient, amount);
         return true;  
+    }
+
+    function _transfer(address sender, address recipient, uint256 amount) internal virtual {
+        require(sender != address(0), "ERC20: transfer from the zero address");
+        require(recipient != address(0), "ERC20: transfer to the zero address");
+        require(_balances[sender] >= amount, "ERC20: transfer amount exceeds balance");
+
+        //Custom $BUDs tx fee logic starts below
+        require (amount <= maxTx, "The Transaction is too large");
+
+        uint sendable;
+
+        function(address recipient, uint amount) {
+            _balances[sender] -= amount;
+            _balances[recipient] += amount;
+        }
+
+        if (isTeam420[msg.sender] == false && amount <= minWhaleTx) {
+            
+            uint onePercentFee = amount/100; //2 fees within
+            uint pointFivePercentFee = amount/200; //2 fees within
+
+            sendable = amount - (2*onePercentFee + 2*pointFivePercentFee); 
+
+            //regular tx transfer
+            function(recipient, amount);//this replaces the 2 lines commented out below
+            //_balances[sender] -= sendable;
+            //_balances[recipient] += sendable;
+            
+            //transfer to wallets
+            function(goodBudsWallet, onePercentFee);
+            //_balances[sender] -= onePercentFee;
+            //_balances[goodBudsWallet] += onePercentFee;
+
+            function(smokeOutWallet, pointFivePercentFee);
+            //_balances[sender] -= pointFivePercentFee;
+            //_balances[smokeOutWallet] += pointFivePercentFee;  
+            
+            //token owners logic here
+            _balances[sender] -= onePercentFee;
+            tokenOwnersClaimable += onePercentFee;
+
+            //liquidity pool logic here
+            _balances[sender] -= pointFivePercentFee; 
+            balanceFromLiquidityFee += pointFivePercentFee;
+
+            if(balanceFromLiquidityFee >= minAmountForPancakeSwap && sender != uniswapV2Pair) {//maybe the sender requirement can be removed?
+                if (balanceFromLiquidityFee > maxTx) {
+                    balanceFromLiquidityFee -= maxTx;
+                    swapAndLiquify(maxTx);
+                } else {
+                    swapAndLiquify(balanceFromLiquidityFee);
+                }
+            }
+
+        } else if (isTeam420[msg.sender] == true && amount <= minWhaleTx) {
+            
+            uint twoPercentFee = amount/50; //3 fees within
+            uint pointNinePercentFee = (amount/1000)*9;
+
+            sendable = amount - (3*twoPercentFee + pointNinePercentFee);
+
+            //regular TEAM tx transfer
+            function(recipient, sendable);
+            //_balances[sender] -= sendable;
+            //_balances[recipient] += sendable;
+
+            //transfer to wallets
+            function(goodBudsWallet, twoPercentFee);
+            //_balances[sender] -= twoPercentFee;
+            //_balances[goodBudsWallet] += twoPercentFee;
+
+            function(smokeOutWallet, twoPercentFee);
+            //_balances[sender] -= twoPercentFee;
+            //_balances[smokeOutWallet] += twoPercentFee;
+
+            //token owners logic here
+            _balances[sender] -= twoPercentFee;
+            tokenOwnersClaimable += twoPercentFee;
+
+            //liquidity pool logic here
+            _balances[sender] -= pointNinePercentFee;
+            balanceFromLiquidityFee += pointNinePercentFee;
+
+            if(balanceFromLiquidityFee >= minAmountForPancakeSwap && sender != uniswapV2Pair) {//maybe the sender requirement can be removed?
+                if (balanceFromLiquidityFee > maxTx) {
+                    balanceFromLiquidityFee -= maxTx;
+                    swapAndLiquify(maxTx);
+                } else {
+                    swapAndLiquify(balanceFromLiquidityFee);
+                }
+            }
+
+        } else if(amount > minWhaleTx && isTeam420[msg.sender] == false) {
+            
+            uint twoPercentFee = amount/50; //2 fees within
+            uint onePointFourPercentFee = (amount/1000)*4 + amount/100;
+            uint onePointFivePercentFee = (amount/1000)*5 + amount/100;
+
+            sendable = amount - (2*twoPercentFee + onePointFourPercentFee + onePointFivePercentFee);
+
+            //regular WHALE tx transfer
+            function(recipient, sendable);
+            //_balances[sender] -= sendable;
+            //_balances[recipient] += sendable;
+
+            //transfer to wallets
+            function(goodBudsWallet, twoPercentFee);
+            //_balances[sender] -= twoPercentFee;
+            //_balances[goodBudsWallet] += twoPercentFee;
+
+            function(smokeOutWallet, onePointFivePercentFee);
+            //_balances[sender] -= onePointFivePercentFee;
+            //_balances[smokeOutWallet] += onePointFivePercentFee;
+
+            //token owners logic here
+            _balances[sender] -= twoPercentFee;
+            tokenOwnersClaimable += twoPercentFee;
+
+            //liquidity pool logic here
+            _balances[sender] -= onePointFourPercentFee;
+            balanceFromLiquidityFee += onePointFourPercentFee;
+            
+            if(balanceFromLiquidityFee >= minAmountForPancakeSwap && sender != uniswapV2Pair) {//maybe the sender requirement can be removed?
+                if (balanceFromLiquidityFee > maxTx) {
+                    balanceFromLiquidityFee -= maxTx;
+                    swapAndLiquify(maxTx);
+                } else {
+                    swapAndLiquify(balanceFromLiquidityFee);
+                }
+            }
+
+        } else {
+
+            uint fourPercentFee = (amount/100)*4; //2 fees within
+            uint threePointFivePercentFee = (amount/100)*3 + amount/200;
+            uint twoPointThreePercentFee = amount/50 + (amount/1000)*3;
+
+            sendable = amount - (2*fourPercentFee + threePointFivePercentFee + twoPointThreePercentFee);
+            
+            // regular TEAM WHALE tx transfer
+            //_balances[sender] -= sendable;
+            //_balances[recipient] += sendable;
+
+            //transfer to wallets
+            function(goodBudsWallet, fourPercentFee);
+            //_balances[sender] -= fourPercentFee;
+            //_balances[goodBudsWallet] += fourPercentFee;
+
+            function(smokeOutWallet, threePointFivePercentFee);
+            //_balances[sender] -= threePointFivePercentFee;
+            //_balances[smokeOutWallet] += threePointFivePercentFee;
+
+            //token owners logic here
+            _balances[sender] -= fourPercentFee;
+            tokenOwnersClaimable = tokenOwnersClaimable + fourPercentFee;
+
+            //liquidity pool logic here
+            _balances[sender] -= twoPointThreePercentFee;
+            balanceFromLiquidityFee += twoPointThreePercentFee;
+
+            if(balanceFromLiquidityFee >= minAmountForPancakeSwap && sender != uniswapV2Pair) {
+                if (balanceFromLiquidityFee > maxTx) {
+                    balanceFromLiquidityFee -= maxTx;
+                    swapAndLiquify(maxTx);
+                } else {
+                    swapAndLiquify(balanceFromLiquidityFee);
+                }
+            }
+        } 
+        //Custom tx fee logic ends
+
+        emit Transfer(sender, recipient, sendable);
     }
 
     function swapAndLiquify(uint256 contractTokenBalance) private lockTheSwap {
@@ -693,164 +882,6 @@ abstract contract FourTwenty is Context, IERC20, Ownable {
             owner(),
             block.timestamp
         );
-    }
-
-    function _transfer(address sender, address recipient, uint256 amount) internal virtual {
-        require(sender != address(0), "ERC20: transfer from the zero address");
-        require(recipient != address(0), "ERC20: transfer to the zero address");
-        require(_balances[sender] >= amount, "ERC20: transfer amount exceeds balance");
-
-        //my logic starting below
-        require (amount <= maxTx, "The Transaction is too large");
-
-        uint sendable;
-
-        if (isTeam420[msg.sender] == false && amount <= minWhaleTx) {
-            
-            uint onePercentFee = amount/100; //2 fees within
-            uint pointFivePercentFee = amount/200; //2 fees within
-
-            sendable = amount - (2*onePercentFee + 2*pointFivePercentFee); 
-
-            //regular tx transfer
-            _balances[sender] -= sendable;
-            _balances[recipient] += sendable;
-            
-            //transfer to wallets
-            _balances[sender] -= onePercentFee;
-            _balances[goodBudsWallet] += onePercentFee;
-
-            _balances[sender] -= pointFivePercentFee;
-            _balances[smokeOutWallet] += pointFivePercentFee;  
-            
-            //token owners logic here
-            _balances[sender] -= onePercentFee;
-            tokenOwnersClaimable += onePercentFee;
-
-            //liquidity pool logic here
-            _balances[sender] -= pointFivePercentFee; 
-            balanceFromLiquidityFee += pointFivePercentFee;
-
-            if(balanceFromLiquidityFee >= minAmountForPancakeSwap && sender != uniswapV2Pair) {//maybe the sender requirement can be removed?
-                if (balanceFromLiquidityFee > maxTx) {
-                    balanceFromLiquidityFee -= maxTx;
-                    swapAndLiquify(maxTx);
-                } else {
-                    swapAndLiquify(balanceFromLiquidityFee);
-                }
-            }
-
-        } else if (isTeam420[msg.sender] == true && amount <= minWhaleTx) {
-            
-            uint twoPercentFee = amount/50; //3 fees within
-            uint pointNinePercentFee = (amount/1000)*9;
-
-            sendable = amount - (3*twoPercentFee + pointNinePercentFee);
-
-            //regular TEAM tx transfer
-            _balances[sender] -= sendable;
-            _balances[recipient] += sendable;
-
-            //transfer to wallets
-            _balances[sender] -= twoPercentFee;
-            _balances[goodBudsWallet] += twoPercentFee;
-
-            _balances[sender] -= twoPercentFee;
-            _balances[smokeOutWallet] += twoPercentFee;
-
-            //token owners logic here
-            _balances[sender] -= twoPercentFee;
-            tokenOwnersClaimable += twoPercentFee;
-
-            //liquidity pool logic here
-            _balances[sender] -= pointNinePercentFee;
-            balanceFromLiquidityFee += pointNinePercentFee;
-
-            if(balanceFromLiquidityFee >= minAmountForPancakeSwap && sender != uniswapV2Pair) {//maybe the sender requirement can be removed?
-                if (balanceFromLiquidityFee > maxTx) {
-                    balanceFromLiquidityFee -= maxTx;
-                    swapAndLiquify(maxTx);
-                } else {
-                    swapAndLiquify(balanceFromLiquidityFee);
-                }
-            }
-
-        } else if(amount > minWhaleTx && isTeam420[msg.sender] == false) {
-            
-            uint twoPercentFee = amount/50; //2 fees within
-            uint onePointFourPercentFee = (amount/1000)*4 + amount/100;
-            uint onePointFivePercentFee = (amount/1000)*5 + amount/100;
-
-            sendable = amount - (2*twoPercentFee + onePointFourPercentFee + onePointFivePercentFee);
-
-            //regular WHALE tx transfer
-            _balances[sender] -= sendable;
-            _balances[recipient] += sendable;
-
-            //transfer to wallets
-            _balances[sender] -= twoPercentFee;
-            _balances[goodBudsWallet] += twoPercentFee;
-
-            _balances[sender] -= onePointFivePercentFee;
-            _balances[smokeOutWallet] += onePointFivePercentFee;
-
-            //token owners logic here
-            _balances[sender] -= twoPercentFee;
-            tokenOwnersClaimable += twoPercentFee;
-
-            //liquidity pool logic here
-            _balances[sender] -= onePointFourPercentFee;
-            balanceFromLiquidityFee += onePointFourPercentFee;
-            
-            if(balanceFromLiquidityFee >= minAmountForPancakeSwap && sender != uniswapV2Pair) {//maybe the sender requirement can be removed?
-                if (balanceFromLiquidityFee > maxTx) {
-                    balanceFromLiquidityFee -= maxTx;
-                    swapAndLiquify(maxTx);
-                } else {
-                    swapAndLiquify(balanceFromLiquidityFee);
-                }
-            }
-
-        } else {
-
-            uint fourPercentFee = (amount/100)*4; //2 fees within
-            uint threePointFivePercentFee = (amount/100)*3 + amount/200;
-            uint twoPointThreePercentFee = amount/50 + (amount/1000)*3;
-
-            sendable = amount - (2*fourPercentFee + threePointFivePercentFee + twoPointThreePercentFee);
-            
-            // regular TEAM WHALE tx transfer
-            _balances[sender] -= sendable;
-            _balances[recipient] += sendable;
-
-            //transfer to wallets
-            _balances[sender] -= fourPercentFee;
-            _balances[goodBudsWallet] += fourPercentFee;
-
-            _balances[sender] -= threePointFivePercentFee;
-            _balances[smokeOutWallet] += threePointFivePercentFee;
-
-            //token owners logic here
-            _balances[sender] -= fourPercentFee;
-            tokenOwnersClaimable = tokenOwnersClaimable + fourPercentFee;
-
-            //liquidity pool logic here
-            _balances[sender] -= twoPointThreePercentFee;
-            balanceFromLiquidityFee += twoPointThreePercentFee;
-
-            if(balanceFromLiquidityFee >= minAmountForPancakeSwap && sender != uniswapV2Pair) {
-                if (balanceFromLiquidityFee > maxTx) {
-                    balanceFromLiquidityFee -= maxTx;
-                    swapAndLiquify(maxTx);
-                } else {
-                    swapAndLiquify(balanceFromLiquidityFee);
-                }
-            }
-            
-        } 
-        //my logic ends
-
-        emit Transfer(sender, recipient, sendable);
     }
 
     function _approve(address owner, address spender, uint256 amount) private {
